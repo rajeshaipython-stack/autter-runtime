@@ -28,6 +28,8 @@ export interface RelayOptions {
 	 * under the server's ingest key. Enable ONLY behind a proxy/CDN you control
 	 * that overwrites the header. When off, the fetch handler keys a single
 	 * shared bucket, and the Node handler keys the real socket peer address.
+	 * Only a strict boolean `true` enables it — a truthy string such as the
+	 * common `process.env.TRUST_PROXY === "false"` slip stays on the safe path.
 	 */
 	trustProxy?: boolean;
 	/** Called when the async forward fails (default: console.warn). */
@@ -348,10 +350,11 @@ export function createBrowserRelayFetchHandler(
 			// otherwise a caller could spoof a fresh IP per request to bypass
 			// the window. With no trusted peer source in a fetch runtime, fall
 			// back to one shared bucket (a conservative global limit).
-			const ip = opts.trustProxy
-				? firstForwardedFor(request.headers.get("x-forwarded-for")) ||
-					"unknown"
-				: "shared";
+			const ip =
+				opts.trustProxy === true
+					? firstForwardedFor(request.headers.get("x-forwarded-for")) ||
+						"unknown"
+					: "shared";
 			if (!limiter.allow(ip)) {
 				return new Response(JSON.stringify({ error: "rate limit exceeded" }), {
 					status: 429,
@@ -439,7 +442,7 @@ export function createBrowserRelayHandler(
 			// Prefer the real socket peer; only trust X-Forwarded-For when the
 			// caller has explicitly opted into a trusted-proxy deployment.
 			const ip =
-				(opts.trustProxy
+				(opts.trustProxy === true
 					? firstForwardedFor(req.headers["x-forwarded-for"])
 					: "") ||
 				req.socket?.remoteAddress ||

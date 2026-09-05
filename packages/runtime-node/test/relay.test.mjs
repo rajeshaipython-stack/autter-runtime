@@ -120,15 +120,37 @@ test("relay: secret-bearing context keys are redacted (top level and nested)", (
 });
 
 test("relay: secret-shaped values under benign keys are scrubbed", () => {
+	// Built at runtime so no JWT-shaped literal sits in source (would trip
+	// secret scanners); the parts are meaningless placeholders.
+	const jwtLike = ["eyJhbGciOiJIUzI1NiJ9", "eyJzdWIiOiJ0ZXN0In0", "0".repeat(22)].join(".");
 	const ctx = sanitizeContext({
 		note: "Bearer supersecrettoken12345",
-		jwtish:
-			"eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
+		jwtish: jwtLike,
 		plain: "just a normal message",
 	});
 	assert.equal(ctx.note, "[redacted]");
 	assert.equal(ctx.jwtish, "[redacted]");
 	assert.equal(ctx.plain, "just a normal message");
+});
+
+test("relay: a truthy but non-true trustProxy stays on the safe shared bucket", async () => {
+	const handler = createBrowserRelayFetchHandler({
+		apiKey: "autter_rt_test",
+		perIpRateLimit: 1,
+		// a common config slip: an env string "false" is truthy but must NOT
+		// enable forwarded-header trust
+		trustProxy: "false",
+	});
+	const mk = (ip) =>
+		new Request("http://localhost/relay", {
+			method: "POST",
+			headers: { "x-forwarded-for": ip },
+			body: "{",
+		});
+	const first = await handler(mk("1.1.1.1"));
+	const second = await handler(mk("2.2.2.2"));
+	assert.equal(first.status, 400);
+	assert.equal(second.status, 429); // shared bucket — not fooled by "false"
 });
 
 test("relay: numeric usage counts under token/session keys are preserved", () => {
